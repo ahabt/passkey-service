@@ -1,6 +1,8 @@
 package com.example.passkey.controller;
 
+import ch.qos.logback.core.testUtil.RandomUtil;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,48 +15,47 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/bridge")
+@RequestMapping("/api")
 public class BridgeController {
 
   private static final Logger logger = LoggerFactory.getLogger(BridgeController.class);
 
   // Simple in-memory store for PoC (Use Redis for Production)
   private final Map<String, String> signatureStore = new ConcurrentHashMap<>();
-  private final Map<String, String> publicKeyStore = new ConcurrentHashMap<>();
+  private final Map<String, Map<String, String>> publicKeyStore = new ConcurrentHashMap<>();
   private final Map<String, String> challengeStore = new ConcurrentHashMap<>();
 
   // 1. App calls this after scanning QR and signing
-  @PostMapping("/submit")
-  public ResponseEntity<String> submitSignature(@RequestBody Map<String, String> payload) {
-    logger.info("Received signature submission: {}", payload);
-    String sessionId = payload.get("sessionID");
-    String signature = payload.get("signature");
-    String publicKey = payload.get("publicKey");
-    String challenge = payload.get("challenge");
+  @PostMapping("/register-device")
+  public ResponseEntity<Map<String, Object>> registerDevice(@RequestBody Map<String, String> payload) {
+    logger.info("Received registerDevice: {}", payload);
+    String sessionId = payload.getOrDefault("sessionID", "unknown-session");
 
-    signatureStore.put(sessionId, signature);
-    publicKeyStore.put(sessionId, publicKey);
-    challengeStore.put(sessionId, challenge);
-    return ResponseEntity.ok("Signature Received");
+    publicKeyStore.put(sessionId, payload);
+    return ResponseEntity.ok(Map.of("status", "registered", "sessionID", sessionId));
   }
 
   // 2. Desktop Browser calls this every 2 seconds
-  @GetMapping("/poll/{sessionId}")
-  public ResponseEntity<Map<String, Object>> pollSignature(@PathVariable String sessionId)
+  @PostMapping("/authenticate")
+  public ResponseEntity<Map<String, Object>> authenticate(@RequestBody Map<String, String> payload)
       throws Exception {
-    logger.info("Received signature poll: {}", sessionId);
-    if (signatureStore.containsKey(sessionId)) {
-      String signature = signatureStore.remove(sessionId);
-      String userPublicKey = publicKeyStore.remove(sessionId);
-      String originalChallenge = challengeStore.remove(sessionId);
+    logger.info("Received authenticate request: {}", payload);
 
+    boolean isValid;
+    for (Entry<String, Map<String, String>> entry : publicKeyStore.entrySet()) {
+      logger.info("Veriyfying signature with Public Key Store Entry: {} ", entry.getKey());
+      String signature = payload.get("signature");
+      String originalChallenge = entry.getValue().get("challenge");
+      String userPublicKey = entry.getValue().get("publicKey");
       // Perform the ECDSA Verification logic here (from previous step)
-      boolean isValid = FidoVerifier.verify(userPublicKey, originalChallenge, signature);
-
-      logger.info("Signature verified: {}", isValid);
-      return ResponseEntity.ok(Map.of("status", "authenticated", "valid", isValid));
+      isValid = FidoVerifier.verify(userPublicKey, originalChallenge, signature);
+      if (isValid) {
+        logger.info("Signature verified: true");
+        return ResponseEntity.ok(Map.of("status", "authenticated", "valid", "true"));
+      }
     }
-    logger.warn("Signature not found: {}", sessionId);
-    return ResponseEntity.ok(Map.of("status", "pending"));
+
+    logger.info("Signature verified: false");
+    return ResponseEntity.ok(Map.of("status", "authenticated", "valid", "false"));
   }
 }
