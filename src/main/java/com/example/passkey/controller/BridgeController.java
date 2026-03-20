@@ -28,7 +28,6 @@ public class BridgeController {
   // 1. App calls this after scanning QR and signing
   @PostMapping("/register-device")
   public ResponseEntity<Map<String, Object>> registerDevice(@RequestBody Map<String, String> payload) {
-    logger.info("Received registerDevice: {}", payload);
     String sessionId = payload.getOrDefault("sessionID", "unknown-session");
 
     publicKeyStore.put(sessionId, payload);
@@ -39,7 +38,6 @@ public class BridgeController {
   @PostMapping("/authenticate")
   public ResponseEntity<Map<String, Object>> authenticate(@RequestBody Map<String, String> payload)
       throws Exception {
-    logger.info("Received authenticate request: {}", payload);
 
     boolean isValid;
     for (Entry<String, Map<String, String>> entry : publicKeyStore.entrySet()) {
